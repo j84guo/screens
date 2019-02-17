@@ -1,40 +1,17 @@
-#include <string>
+#include "utils.h"
+
 #include <stdexcept>
 
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 
-#include <fcntl.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
-#include <termios.h>
 #include <sys/types.h>
 #include <sys/select.h>
 
-/* Original terminal settings */
-struct termios saved_settings;
-
-std::string str_error(int err)
-{
-  char buf[256] = {0};
-  const char *ptr = nullptr;
-#if defined(__GLIBC__) && defined(_GNU_SOURCE)
-  ptr = strerror_r(err, buf, sizeof(buf) - 1);
-#else
-  if (!strerror_r(err, buf, sizeof(buf) - 1)) {
-    ptr = buf;
-  } else {
-    ptr = "Error, but the message could not be shown via (POSIX) strerror_r!";
-  }
-#endif
-  return ptr;
-}
-
-void sys_error(const std::string &name)
-{
-  throw std::runtime_error(name + ": " + str_error(errno));
-}
+/* Ctrl-A */
+const unsigned char ASCII_1 = 1;
 
 /* Create a pseudo-terminal pair */
 int make_pty()
@@ -51,13 +28,10 @@ int make_pty()
   return -1;
 }
 
-/* Multiplex read on stdin and the pseudo-terminal master */
+/* Multiplex read on stdin and the pseudo-terminal master, expects a non-null
+   fd_set */
 int fdm_stdin_rselect(fd_set *rset, int fdm)
 {
-  if (!rset) {
-    return -1;
-  }
-
   FD_ZERO(rset);
   FD_SET(fdm, rset);
   FD_SET(STDIN_FILENO, rset);
@@ -71,30 +45,6 @@ int fdm_stdin_rselect(fd_set *rset, int fdm)
   );
 }
 
-/* Restore original terminal settings */
-void unset_terminal_rawio()
-{
-  tcsetattr(STDIN_FILENO, TCSANOW, &saved_settings);
-}
-
-/* Set raw I/O on controlling terminal, restoring original settings on exit */
-int set_terminal_rawio()
-{
-  struct termios new_settings;
-
-  if (tcgetattr(STDIN_FILENO, &saved_settings) != -1) {
-    new_settings = saved_settings;
-    cfmakeraw(&new_settings);
-
-    if (atexit(unset_terminal_rawio) != -1 &&
-        tcsetattr(STDIN_FILENO, TCSANOW, &new_settings) != -1) {
-      return 0;
-    }
-  }
-
-  return -1;
-}
-
 int write_all(int fd, char *buf, size_t len)
 {
   size_t i = 0;
@@ -102,6 +52,9 @@ int write_all(int fd, char *buf, size_t len)
   while (i < len) {
     int res = write(fd, buf + i, len);
     if (res == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
       return -1;
     }
     i += res;
@@ -110,59 +63,71 @@ int write_all(int fd, char *buf, size_t len)
   return 0;
 }
 
+/* Return whether the parent loop should continue or not (error or EOF) */
+bool handle_stdin_read(int fdm)
+{
+  int res = fgetc(stdin);
+  if (res != EOF) {
+    unsigned char c = res;
+    if (c == ASCII_1) {
+      printf("(Got ctrl-a!)\r\n");
+    } else {
+      if (write_all(fdm, (char *) &c, 1) == -1) {
+        sys_error("write");
+      }
+    }
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
+/* Return whether the parent loop should continue or not (error or EOF) */
+bool handle_fdm_read(int fdm)
+{
+  char buf[512];
+
+  int res = read(fdm, buf, sizeof(buf));
+  if (res > 0) {
+    if (write_all(STDIN_FILENO, buf, res) == -1) {
+      sys_error("write");
+    }
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
 /* Forwards raw bytes to slave, print slave output */
 void run_parent(int fdm)
 {
   fd_set rset;
-  char buf[512];
-  int in_fd, out_fd;
 
   if (set_terminal_rawio() == -1) {
     sys_error("set_rawio");
   }
 
-  while (1) {
-    int res = fdm_stdin_rselect(&rset, fdm);
-    if (res == -1) {
+  bool cont = true;
+
+  while (cont) {
+    if (fdm_stdin_rselect(&rset, fdm) == -1) {
       sys_error("fdm_stdin_rselect");
     }
 
     if (FD_ISSET(STDIN_FILENO, &rset)) {
-      in_fd = STDIN_FILENO;
-      out_fd = fdm;
+      cont = handle_stdin_read(fdm);
     } else if (FD_ISSET(fdm, &rset)) {
-      in_fd = fdm;
-      out_fd = STDOUT_FILENO;
-    }
-
-    res = read(in_fd, buf, sizeof(buf));
-    if (res > 0) {
-      if (write_all(out_fd, buf, res) == -1) {
-        sys_error("write");
-      }
-    } else {
-      break;
+      cont = handle_fdm_read(fdm);
     }
   }
-}
 
-/* Set standard descriptors to fd */
-int reset_stddes_to(int fd)
-{
-  close(0);
-  close(1);
-  close(2);
-
-  if (dup(fd) == -1 ||
-      dup(fd) == -1 ||
-      dup(fd) == -1) {
-    return -1;
-  }
-  return 0;
+  close(fdm);
 }
 
 /* Side effect may be new session id and group id! */
-int get_new_ctty(int fdm)
+int acquire_ctty(int fdm)
 {
   int res = -1;
 
@@ -171,7 +136,7 @@ int get_new_ctty(int fdm)
     if (setsid() != -1) {
       int fds = open(path, O_RDWR);
       if (fds != -1) {
-        if (reset_stddes_to(fds) != -1) {
+        if (reset_stddes(fds)) {
           res = 0;
           close(fdm);
         }
@@ -186,8 +151,8 @@ int get_new_ctty(int fdm)
 /* Obtain new controlling tty (slave) from fdm (master) and exec Bash */
 void run_child(int fdm)
 {
-  if (get_new_ctty(fdm) == -1) {
-    sys_error("get_new_ctty");
+  if (acquire_ctty(fdm) == -1) {
+    sys_error("acquire_ctty");
   }
 
   execl("/bin/bash", "bash", NULL);
@@ -199,13 +164,14 @@ void run_child(int fdm)
    1. Intercept screens commands, e.g. list windows, switch window. Commands are
       two bytes: 3 (ctrl-a) and some identifier
    2. Track windows, switch to next window when one closes and terminate when
-      last one closes
+      last one closes. This includes maintaining a circular buffer for each
+      window representing the last N bytes outputtted; we display this when a
+      use switches terminals!
    3. Daemonize server and communicate with it via Unix socket */
 void demo()
 {
   if (!isatty(STDIN_FILENO)) {
-    fprintf(stderr, "Stdin must be connected to a terminal.\n");
-    return 1;
+    throw std::runtime_error("Stdin must be connected to a terminal.");
   }
 
   int fdm = make_pty();
@@ -231,5 +197,6 @@ int main()
     demo();
   } catch (const std::exception &ex) {
     fprintf(stderr, "%s\r\n", ex.what());
+    return EXIT_FAILURE;
   }
 }

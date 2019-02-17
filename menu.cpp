@@ -1,98 +1,174 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <termios.h>
+#include "utils.h"
 
+#include <string>
+#include <vector>
+
+#include <stdio.h>
+#include <unistd.h>
+
+/* Colours */
 const char *BG_BLUE = "\x1b[44m";
 const char *RESET = "\033[0m";
 const char *CLEAR = "\e[1;1H\e[2J";
 
-const char KEY_SPACE = 32;
-const char KEY_ESC = 27;
-const char KEY_LSQBR = 91;
-const char KEY_UP = 65;
-const char KEY_DOWN = 66;
+/* Alternate buffer */
+const char *TO_ALT_BUF = "\033[?1049h\033[H";
+const char *FROM_ALT_BUF = "\033[?1049l";
 
-struct termios saved_settings;
+/* Key presses */
+const unsigned char KEY_SPACE = 32;
+const unsigned char KEY_ESC = 27;
+const unsigned char KEY_LSQBR = 91;
+const unsigned char KEY_UP = 65;
+const unsigned char KEY_DOWN = 66;
+const unsigned char KEY_ENTER = 13;
 
-const char *dir_codes[] = {
+/* Cursor directions */
+const char *DIR_CODES[] = {
   "\033[%dA",
   "\033[%dB",
   "\033[%dD",
   "\033[%dC"
 };
 
-enum cursor_dir {
+enum CursorDir {
   DIR_UP,
   DIR_DOWN,
   DIR_LEFT,
   DIR_RIGHT
 };
 
-const char *options[] = {
-  "1. bash",
-  "2. bash",
-  "3. bash"
+/* constructor: possibly go to alternate buffer, make space, scroll back
+                up, print prompt and options
+   run: wait for user to choose an option and return
+   destructor: possibly switch back to main buffer
+
+   Note: assumes terminal in raw IO mode! */
+class Menu {
+  public:
+    static const int STDINEOF = -1;
+    static const int NOCHOICE = -2;
+
+    Menu(const std::vector<std::string> &options, bool altBuf=true);
+    ~Menu();
+
+    int run();
+    void close();
+
+  private:
+    void makeMenuSpace();
+    void displayMenu();
+    void printMenu();
+    void updateMenu(enum CursorDir);
+    void scroll(enum CursorDir, int n);
+
+    const std::vector<std::string> options;
+    int current;
+    bool altBuf;
+    bool active;
 };
 
-int num_options = 3;
-int cur_option = 0;
-
-void unset_terminal_rawio()
+Menu::Menu(const std::vector<std::string> &options, bool altBuf):
+  options(options), current(0), altBuf(altBuf), active(false)
 {
-  tcsetattr(STDIN_FILENO, TCSANOW, &saved_settings);
-}
-
-int set_terminal_rawio()
-{
-  struct termios new_settings;
-
-  if (tcgetattr(STDIN_FILENO, &saved_settings) != -1) {
-    new_settings = saved_settings;
-    cfmakeraw(&new_settings);
-
-    if (atexit(unset_terminal_rawio) != -1 &&
-        tcsetattr(STDIN_FILENO, TCSANOW, &new_settings) != -1) {
-      return 0;
-    }
+  if (altBuf) {
+    printf("%s", TO_ALT_BUF);
+    fflush(stdout);
   }
 
-  return -1;
+  printf("Use UP/DOWN to navigate, press SPACE to exit.\r\n");
+  displayMenu();
 }
 
-void scroll(enum cursor_dir dir, int n)
+void Menu::makeMenuSpace()
 {
-  printf(dir_codes[dir], n);
+  for (int i=0; i<options.size(); ++i) {
+    printf("\r\n");
+  }
 }
 
-void print_menu(int highlight)
+void Menu::displayMenu()
 {
-  for (int i=0; i<num_options; ++i) {
-    if (i == highlight) {
-      printf("%s%s%s\r\n", BG_BLUE, options[i], RESET);
+  makeMenuSpace();
+  scroll(DIR_UP, options.size());
+  printMenu();
+}
+
+void Menu::printMenu()
+{
+  for (int i=0; i<options.size(); ++i) {
+    if (i == current) {
+      printf("%s%d. %s%s\r\n", BG_BLUE, i + 1, options.at(i).c_str(), RESET);
     } else {
-      printf("%s\r\n", options[i]);
+      printf("%d. %s\r\n", i + 1, options.at(i).c_str());
     }
   }
 }
 
-void update_menu(enum cursor_dir dir)
+/* Returns the user's choice, -1 on user declining or EOF on stdin closing.
+   Throws an exception on I/O error */
+int Menu::run()
 {
-  scroll(DIR_UP, num_options);
+  int res;
+  while ((res = fgetc(stdin)) != KEY_SPACE) {
+    if (res == KEY_ESC && (res = fgetc(stdin)) == KEY_LSQBR) {
+      switch ((res = fgetc(stdin))) {
+      case KEY_UP:
+        updateMenu(DIR_UP);
+        break;
+      case KEY_DOWN:
+        updateMenu(DIR_DOWN);
+        break;
+      }
+    }
+
+    if (res == EOF) {
+      if (ferror(stdin)) {
+        sys_error("fgetc");
+      }
+      return STDINEOF;
+    } else if (res == KEY_SPACE) {
+      break;
+    } else if (res == KEY_ENTER) {
+      return current;
+    }
+  }
+
+  return NOCHOICE;
+}
+
+void Menu::updateMenu(enum CursorDir dir)
+{ 
+  int numOptions = options.size();
+  scroll(DIR_UP, numOptions);
 
   if (dir == DIR_UP) {
-    cur_option = !cur_option ? num_options - 1 : (cur_option - 1) % num_options;
+    current = !current ? numOptions - 1 : (current - 1) % numOptions;
   } else {
-    cur_option = (cur_option + 1) % num_options;
+    current = (current + 1) % numOptions;
   }
 
-  print_menu(cur_option);
+  printMenu();
 }
 
-void make_menu_space()
+void Menu::scroll(enum CursorDir dir, int n)
 {
-  for (int i=0; i<num_options; ++i) {
-    printf("\r\n");
+  printf(DIR_CODES[dir], n);
+}
+
+void Menu::close()
+{
+  if (altBuf) {
+    printf("%s", FROM_ALT_BUF);
+    fflush(stdout);
+  }
+  active = false;
+}
+
+Menu::~Menu()
+{
+  if (active) {
+    close(); 
   }
 }
 
@@ -101,37 +177,16 @@ int main(int argc, char *argv[])
   /* Raw mode: no echoing, no terminal driver processing, no line-buffering */
   set_terminal_rawio();
 
-  /* Clear terminal screen
+  /* Go to alternate buffer (note stdout is line-buffered by default)
      Print newlines
-     Move curor up
+     Move cursor up
      Print menu line by line and choose first to highlight */
-  printf("%s", CLEAR);
-  printf("Use UP/DOWN to navigage, press SPACE to exit.\r\n");
-  make_menu_space();
-  scroll(DIR_UP, num_options);
-  print_menu(0);
+  std::vector<std::string> options = {"Bash", "java", "python3"};
+  Menu menu(options, true);
 
-  /* In cursor mode, up/down arrow press sends 3 bytes: esc, ] and A/B  */
-  int res;
-  while ((res = fgetc(stdin)) != KEY_SPACE) {
-    if (res == KEY_ESC && (res = fgetc(stdin)) == KEY_LSQBR) {
-      switch ((res = fgetc(stdin))) {
-      case KEY_UP:
-        update_menu(DIR_UP);
-        break;
-      case KEY_DOWN:
-        update_menu(DIR_DOWN);
-        break;
-      }
-    }
-
-    if (res == EOF) {
-      if (ferror(stdin)) {
-        exit(1);
-      }
-      break;
-    } else if (res == KEY_SPACE) {
-      break;
-    }
-  }
+  /* In cursor mode, up/down arrow press sends 3 bytes: esc, ] and A/B
+     Come back from alternate buffer */
+  int choice = menu.run();
+  menu.close();
+  printf("You chose: %d\r\n", choice);
 }
