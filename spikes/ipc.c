@@ -8,7 +8,7 @@
 #include <termios.h>
 #include <sys/types.h>
 
-void sys_error(char *name, int code)
+void sysError(char *name, int code)
 {
   perror(name);
   exit(code);
@@ -79,13 +79,13 @@ void print_ctty_fgp(int fds)
 {
   int fgp = tcgetpgrp(fds);
   if (fgp == -1) {
-    sys_error("tcgetpgrp", 1);
+    sysError("tcgetpgrp", 1);
   }
   printf("fgp: %d\n", fgp);
 }
 
 /* Replace std descriptors with fd */
-void reset_stddes(int fd)
+void resetStddes(int fd)
 {
   close(0);
   close(1);
@@ -94,7 +94,7 @@ void reset_stddes(int fd)
   if (dup(fd) == -1 ||
       dup(fd) == -1 ||
       dup(fd) == -1) {
-    sys_error("dup", 1);
+    sysError("dup", 1);
   }
 }
 
@@ -106,24 +106,24 @@ void init_new_ctty(int fdm)
   struct termios new_settings;
 
   if (setsid() == -1) {
-    sys_error("setsid", 1);
+    sysError("setsid", 1);
   }
 
   char *path = ptsname(fdm);
   if (!path) {
-    sys_error("ptsname", 1);
+    sysError("ptsname", 1);
   }
 
   int fds = open(path, O_RDWR);
   if (fds == -1) {
-    sys_error("open", 1);
+    sysError("open", 1);
   }
 
   close(fdm);
 
   /* New terminal settings are based on the old ones, which we also save */
   if (tcgetattr(fds, &old_settings) == -1) {
-    sys_error("tcgetattr", 1);
+    sysError("tcgetattr", 1);
   }
   new_settings = old_settings;
 
@@ -131,10 +131,10 @@ void init_new_ctty(int fdm)
      emulators show what you just typed. Raw I/O is like pipes */
   cfmakeraw(&new_settings);
   if (tcsetattr(fds, TCSANOW, &new_settings) == -1) {
-    sys_error("tcsetattr", 1);
+    sysError("tcsetattr", 1);
   }
 
-  reset_stddes(fds);
+  resetStddes(fds);
   close(fds);
 }
 
@@ -155,19 +155,19 @@ void run_child(int fdm)
   }
 
   // execl("/bin/bash", "bash", NULL);
-  // sys_error("execl", 1);
+  // sysError("execl", 1);
 }
 
 int main()
 {
   int fdm = make_pty();
   if (fdm == -1) {
-    sys_error("make_pty", 1);
+    sysError("make_pty", 1);
   }
 
   pid_t pid = fork();
   if (pid == -1) {
-    sys_error("fork", 1);
+    sysError("fork", 1);
   } else if (pid) {
     run_parent(fdm);
   } else {

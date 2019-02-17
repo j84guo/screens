@@ -13,7 +13,7 @@
 
 /* A termios structure which holds the terminal settings on startup, and should
    be restored on exit */
-struct termios saved_settings;
+struct termios savedSettings;
 
 /* strerror_r() comes in two versions
 
@@ -29,7 +29,7 @@ struct termios saved_settings;
    terminated! Even so, we defend agains bugs and save a null byte...
 
    The max buffer length is not standardized, but 256 to 1024 is common. */
-std::string str_error(int err)
+std::string strError(int err)
 {
   char buf[256] = {0};
   const char *ptr = nullptr;
@@ -46,7 +46,7 @@ std::string str_error(int err)
 }
 
 /* A runtime_error reports errors which cannot be easily predicted by the
-   program, while logic_error reports programming mistakes. sys_error is
+   program, while logic_error reports programming mistakes. sysError is
    intended to be called when system call failures occur and we can't recover,
    e.g. out of of memory or unable to change session, so runtime_error makes
    more sense.
@@ -54,15 +54,15 @@ std::string str_error(int err)
    Note that the exception/error_code/error_condition/error_category system in
    C++ is rather unfortunately designed, so we stick with the two basic
    exceptions (logic and runtime) */
-void sys_error(const std::string &name)
+void sysError(const std::string &name)
 {
-  throw std::runtime_error(name + ": " + str_error(errno));
+  throw std::runtime_error(name + ": " + strError(errno));
 }
 
 /* Soft limit, returned here, is the kernel-enforced limit for a resource while
    hard limit is its ceiling. An unprivileged process may set its soft limit up
    to its hard one, but not over. A privileged process may change either! */
-int max_fds()
+int maxFds()
 {
   struct rlimit buf;
   getrlimit(RLIMIT_NOFILE, &buf);
@@ -71,9 +71,9 @@ int max_fds()
 
 /* Redirect stdin from /dev/null; stdout and stderr append to a filesystem path,
    which defaults to /dev/null if not specified */
-bool daemonize_stddes(std::string path)
+bool daemonizeStddes(std::string path)
 {
-  for (int i=0; i<max_fds(); ++i) {
+  for (int i=0; i<maxFds(); ++i) {
     close(i);
   }
 
@@ -92,7 +92,7 @@ bool daemonize_stddes(std::string path)
 }
 
 /* Set standard descriptors to fd */
-bool reset_stddes(int fd)
+bool resetStddes(int fd)
 {
   close(0);
   close(1);
@@ -107,25 +107,26 @@ bool reset_stddes(int fd)
 }
 
 /* Restore original terminal settings. This is  */
-void unset_terminal_rawio()
+void unsetTerminalRawIO()
 {
-  tcsetattr(STDIN_FILENO, TCSANOW, &saved_settings);
+  tcsetattr(STDIN_FILENO, TCSANOW, &savedSettings);
 }
 
-/* Set raw I/O on controlling terminal, restoring original settings on exit */
-int set_terminal_rawio()
+/* Set raw I/O on controlling terminal, restoring original settings on exit
+   Should only be called once! */
+bool setTerminalRawio()
 {
   struct termios new_settings;
 
-  if (tcgetattr(STDIN_FILENO, &saved_settings) != -1) {
-    new_settings = saved_settings;
+  if (tcgetattr(STDIN_FILENO, &savedSettings) != -1) {
+    new_settings = savedSettings;
     cfmakeraw(&new_settings);
 
-    if (atexit(unset_terminal_rawio) != -1 &&
+    if (atexit(unsetTerminalRawIO) != -1 &&
         tcsetattr(STDIN_FILENO, TCSANOW, &new_settings) != -1) {
-      return 0;
+      return true;
     }
   }
 
-  return -1;
+  return false;
 }

@@ -1,5 +1,8 @@
+#include "menu.h"
 #include "utils.h"
 
+#include <string>
+#include <vector>
 #include <stdexcept>
 
 #include <stdio.h>
@@ -10,16 +13,21 @@
 #include <sys/types.h>
 #include <sys/select.h>
 
+
 /* Ctrl-A */
 const unsigned char ASCII_1 = 1;
 
+// int currentWindow;
+// std::vector<Window> windows;
+// 
+// std::vector<std::string> getWindowNames();
+
 /* Create a pseudo-terminal pair */
-int make_pty()
+int makePTY()
 {
   int fdm = posix_openpt(O_RDWR);
   if (fdm != -1) {
-    if (grantpt(fdm) != -1 &&
-        unlockpt(fdm) != -1) {
+    if (grantpt(fdm) != -1 && unlockpt(fdm) != -1) {
       return fdm;
     }
     close(fdm);
@@ -30,7 +38,7 @@ int make_pty()
 
 /* Multiplex read on stdin and the pseudo-terminal master, expects a non-null
    fd_set */
-int fdm_stdin_rselect(fd_set *rset, int fdm)
+int fdmStdinRselect(fd_set *rset, int fdm)
 {
   FD_ZERO(rset);
   FD_SET(fdm, rset);
@@ -45,7 +53,10 @@ int fdm_stdin_rselect(fd_set *rset, int fdm)
   );
 }
 
-int write_all(int fd, char *buf, size_t len)
+/* Unix write() may only process some of the request bytes, it may also be
+   interrupted by a signal. This helper continues writing untill all requested
+   bytes are processed, or I/O error */
+int writeAll(int fd, char *buf, size_t len)
 {
   size_t i = 0;
 
@@ -64,34 +75,60 @@ int write_all(int fd, char *buf, size_t len)
 }
 
 /* Return whether the parent loop should continue or not (error or EOF) */
-bool handle_stdin_read(int fdm)
+bool handleScreenCommand()
 {
   int res = fgetc(stdin);
-  if (res != EOF) {
-    unsigned char c = res;
-    if (c == ASCII_1) {
-      printf("(Got ctrl-a!)\r\n");
-    } else {
-      if (write_all(fdm, (char *) &c, 1) == -1) {
-        sys_error("write");
-      }
-    }
-  } else {
+  if (res == EOF) {
     return false;
+  }
+
+  switch (res) {
+  case KEY_DQUOTE:
+    printf("List screens\r\n");
+    break;
+  case KEY_LOWER_C:
+    printf("Create screen\r\n");
+    break;
+  case KEY_LOWER_N:
+    printf("Next screen\r\n");
+    break;
+  case KEY_UPPER_N:
+    printf("Previous screen\r\n");
+    break;
   }
 
   return true;
 }
 
 /* Return whether the parent loop should continue or not (error or EOF) */
-bool handle_fdm_read(int fdm)
+bool handleStdinRead(int fdm)
+{
+  int res = fgetc(stdin);
+  if (res == EOF) {
+    return false;
+  }
+
+  unsigned char c = res;
+  if (c == ASCII_1) {
+    return handleScreenCommand();
+  } else {
+    if (writeAll(fdm, (char *) &c, 1) == -1) {
+      sysError("write");
+    }
+  }
+
+  return true;
+}
+
+/* Return whether the parent loop should continue or not (error or EOF) */
+bool handleFdmRead(int fdm)
 {
   char buf[512];
 
   int res = read(fdm, buf, sizeof(buf));
   if (res > 0) {
-    if (write_all(STDIN_FILENO, buf, res) == -1) {
-      sys_error("write");
+    if (writeAll(STDIN_FILENO, buf, res) == -1) {
+      sysError("writeall");
     }
   } else {
     return false;
@@ -101,25 +138,26 @@ bool handle_fdm_read(int fdm)
 }
 
 /* Forwards raw bytes to slave, print slave output */
-void run_parent(int fdm)
+void runParent(int fdm)
 {
   fd_set rset;
 
-  if (set_terminal_rawio() == -1) {
-    sys_error("set_rawio");
+  if (!setTerminalRawio()) {
+    sysError("set_rawio");
   }
 
   bool cont = true;
 
   while (cont) {
-    if (fdm_stdin_rselect(&rset, fdm) == -1) {
-      sys_error("fdm_stdin_rselect");
+    if (fdmStdinRselect(&rset, fdm) == -1) {
+      sysError("fdmStdinRselect");
     }
 
+    /* Act on current Window */
     if (FD_ISSET(STDIN_FILENO, &rset)) {
-      cont = handle_stdin_read(fdm);
+      cont = handleStdinRead(fdm);
     } else if (FD_ISSET(fdm, &rset)) {
-      cont = handle_fdm_read(fdm);
+      cont = handleFdmRead(fdm);
     }
   }
 
@@ -127,17 +165,17 @@ void run_parent(int fdm)
 }
 
 /* Side effect may be new session id and group id! */
-int acquire_ctty(int fdm)
+bool acquireCTTY(int fdm)
 {
-  int res = -1;
+  int res = false;
 
   char *path = ptsname(fdm);
   if (path) {
     if (setsid() != -1) {
       int fds = open(path, O_RDWR);
       if (fds != -1) {
-        if (reset_stddes(fds)) {
-          res = 0;
+        if (resetStddes(fds)) {
+          res = true;
           close(fdm);
         }
         close(fds);
@@ -149,52 +187,56 @@ int acquire_ctty(int fdm)
 }
 
 /* Obtain new controlling tty (slave) from fdm (master) and exec Bash */
-void run_child(int fdm)
+void runChild(int fdm)
 {
-  if (acquire_ctty(fdm) == -1) {
-    sys_error("acquire_ctty");
+  if (!acquireCTTY(fdm)) {
+    sysError("acquireCTTY");
   }
 
   execl("/bin/bash", "bash", NULL);
-  sys_error("execl");
+  sysError("execl");
 }
 
-/* Todo:
-   0. Implement arrow menu and screen clear/restore
-   1. Intercept screens commands, e.g. list windows, switch window. Commands are
-      two bytes: 3 (ctrl-a) and some identifier
-   2. Track windows, switch to next window when one closes and terminate when
-      last one closes. This includes maintaining a circular buffer for each
-      window representing the last N bytes outputtted; we display this when a
-      use switches terminals!
-   3. Daemonize server and communicate with it via Unix socket */
-void demo()
+void demoShell()
 {
   if (!isatty(STDIN_FILENO)) {
     throw std::runtime_error("Stdin must be connected to a terminal.");
   }
 
-  int fdm = make_pty();
+  int fdm = makePTY();
   if (fdm == -1) {
-    sys_error("make_pty");
+    sysError("makePTY");
   }
 
   /* Note the parent closing causes the child to receive SIGHUP while the child
      exiting causes the parent to read EOF from fdm */
   pid_t pid = fork();
   if (pid == -1) {
-    sys_error("fork");
+    sysError("fork");
   } else if (pid) {
-    run_parent(fdm);
+    runParent(fdm);
   } else {
-    run_child(fdm);
+    runChild(fdm);
   }
 }
 
+/* Todo:
+   0. [DONE] Implement arrow menu and screen clear/restore
+   1. [DONE] Intercept screens commands, e.g. list windows, switch window, create
+      window. Commands are two bytes: 3 (ctrl-a) and some identifier
+   2. Track windows in a global vector, switch to next window when one closes
+      and terminate when last one closes.
+
+      Note:
+      This includes maintaining a circular buffer for each window representing
+      the last N bytes outputtted
+
+   3. Daemonize server and make a client to communicate with it via Unix
+      socket */
 int main()
 {
   try {
-    demo();
+    demoShell();
   } catch (const std::exception &ex) {
     fprintf(stderr, "%s\r\n", ex.what());
     return EXIT_FAILURE;

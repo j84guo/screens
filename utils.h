@@ -4,14 +4,14 @@
 #include <string>
 
 
-std::string str_error(int err);
-void sys_error(const std::string &name);
+std::string strError(int err);
+void sysError(const std::string &name);
 
-int max_fds();
-bool daemonize_stddes(std::string path="");
-bool reset_stddes(int fd);
+int maxFds();
+bool daemonizeStddes(std::string path="");
+bool resetStddes(int fd);
 
-void unset_terminal_rawio();
-int set_terminal_rawio();
+void unsetTerminalRawIO();
+bool setTerminalRawio();
 
 #endif

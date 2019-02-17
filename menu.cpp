@@ -1,29 +1,11 @@
+#include "menu.h"
 #include "utils.h"
 
-#include <string>
-#include <vector>
-
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
-/* Colours */
-const char *BG_BLUE = "\x1b[44m";
-const char *RESET = "\033[0m";
-const char *CLEAR = "\e[1;1H\e[2J";
 
-/* Alternate buffer */
-const char *TO_ALT_BUF = "\033[?1049h\033[H";
-const char *FROM_ALT_BUF = "\033[?1049l";
-
-/* Key presses */
-const unsigned char KEY_SPACE = 32;
-const unsigned char KEY_ESC = 27;
-const unsigned char KEY_LSQBR = 91;
-const unsigned char KEY_UP = 65;
-const unsigned char KEY_DOWN = 66;
-const unsigned char KEY_ENTER = 13;
-
-/* Cursor directions */
 const char *DIR_CODES[] = {
   "\033[%dA",
   "\033[%dB",
@@ -31,52 +13,23 @@ const char *DIR_CODES[] = {
   "\033[%dC"
 };
 
-enum CursorDir {
-  DIR_UP,
-  DIR_DOWN,
-  DIR_LEFT,
-  DIR_RIGHT
-};
-
-/* constructor: possibly go to alternate buffer, make space, scroll back
-                up, print prompt and options
-   run: wait for user to choose an option and return
-   destructor: possibly switch back to main buffer
-
-   Note: assumes terminal in raw IO mode! */
-class Menu {
-  public:
-    static const int STDINEOF = -1;
-    static const int NOCHOICE = -2;
-
-    Menu(const std::vector<std::string> &options, bool altBuf=true);
-    ~Menu();
-
-    int run();
-    void close();
-
-  private:
-    void makeMenuSpace();
-    void displayMenu();
-    void printMenu();
-    void updateMenu(enum CursorDir);
-    void scroll(enum CursorDir, int n);
-
-    const std::vector<std::string> options;
-    int current;
-    bool altBuf;
-    bool active;
-};
-
-Menu::Menu(const std::vector<std::string> &options, bool altBuf):
-  options(options), current(0), altBuf(altBuf), active(false)
+Menu::Menu(const std::vector<std::string> &options, bool altBuf, bool rawIO):
+    options(options),
+    current(0),
+    altBuf(altBuf),
+    rawIO(rawIO),
+    active(true)
 {
+  if (rawIO) {
+    toTerminalRawIO();
+  }
+
   if (altBuf) {
     printf("%s", TO_ALT_BUF);
     fflush(stdout);
   }
 
-  printf("Use UP/DOWN to navigate, press SPACE to exit.\r\n");
+  printf("Use UP/DOWN to navigate, ENTER to select an option, SPACE to exit.\r\n");
   displayMenu();
 }
 
@@ -90,7 +43,7 @@ void Menu::makeMenuSpace()
 void Menu::displayMenu()
 {
   makeMenuSpace();
-  scroll(DIR_UP, options.size());
+  scroll(CursorDir::UP, options.size());
   printMenu();
 }
 
@@ -114,17 +67,17 @@ int Menu::run()
     if (res == KEY_ESC && (res = fgetc(stdin)) == KEY_LSQBR) {
       switch ((res = fgetc(stdin))) {
       case KEY_UP:
-        updateMenu(DIR_UP);
+        updateMenu(CursorDir::UP);
         break;
       case KEY_DOWN:
-        updateMenu(DIR_DOWN);
+        updateMenu(CursorDir::DOWN);
         break;
       }
     }
 
     if (res == EOF) {
       if (ferror(stdin)) {
-        sys_error("fgetc");
+        sysError("fgetc");
       }
       return STDINEOF;
     } else if (res == KEY_SPACE) {
@@ -137,56 +90,87 @@ int Menu::run()
   return NOCHOICE;
 }
 
-void Menu::updateMenu(enum CursorDir dir)
-{ 
+void Menu::updateMenu(CursorDir dir)
+{
   int numOptions = options.size();
-  scroll(DIR_UP, numOptions);
+  scroll(CursorDir::UP, numOptions);
 
-  if (dir == DIR_UP) {
+  if (dir == CursorDir::UP) {
     current = !current ? numOptions - 1 : (current - 1) % numOptions;
-  } else {
+  } else if (dir == CursorDir::DOWN) {
     current = (current + 1) % numOptions;
   }
 
   printMenu();
 }
 
-void Menu::scroll(enum CursorDir dir, int n)
+void Menu::scroll(CursorDir dir, int n)
 {
-  printf(DIR_CODES[dir], n);
+  printf(DIR_CODES[(int) dir], n);
 }
 
 void Menu::close()
 {
+  if (!active) {
+    return;
+  }
+  active = false;
+
+  if (rawIO) {
+    fromTerminalRawIO();
+  }
+
   if (altBuf) {
     printf("%s", FROM_ALT_BUF);
     fflush(stdout);
   }
-  active = false;
+}
+
+void Menu::toTerminalRawIO()
+{
+  struct termios newSettings;
+
+  if (tcgetattr(STDIN_FILENO, &savedSettings) != -1) {
+    newSettings = savedSettings;
+    cfmakeraw(&newSettings);
+
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &newSettings) != -1) {
+      return;
+    }
+  }
+
+  sysError("toRawTerminalIO");
+}
+
+void Menu::fromTerminalRawIO()
+{
+  if (tcsetattr(STDIN_FILENO, TCSANOW, &savedSettings) == -1) {
+    sysError("fromTerminalRawIO");
+  }
 }
 
 Menu::~Menu()
 {
-  if (active) {
-    close(); 
-  }
+  close();
 }
 
-int main(int argc, char *argv[])
+void demoMenu()
 {
-  /* Raw mode: no echoing, no terminal driver processing, no line-buffering */
-  set_terminal_rawio();
-
-  /* Go to alternate buffer (note stdout is line-buffered by default)
+  /* Raw mode: no echoing, no terminal driver processing, no line-buffering
+     Go to alternate buffer (note stdout is line-buffered by default)
      Print newlines
      Move cursor up
      Print menu line by line and choose first to highlight */
-  std::vector<std::string> options = {"Bash", "java", "python3"};
+  std::vector<std::string> options = {"bash", "java", "python3"};
   Menu menu(options, true);
 
   /* In cursor mode, up/down arrow press sends 3 bytes: esc, ] and A/B
-     Come back from alternate buffer */
+     Come back from alternate buffer on close */
   int choice = menu.run();
   menu.close();
-  printf("You chose: %d\r\n", choice);
+
+  /* Determine which choice the user made */
+  if (choice != Menu::NOCHOICE && choice != Menu::STDINEOF) {
+    printf("You chose: %s\r\n", options.at(choice).c_str());
+  }
 }

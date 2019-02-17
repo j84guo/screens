@@ -12,7 +12,7 @@
 
 
 /* Return as orphan. Note parent calls exit() which does NOT stack unwind */
-int fork_orphan()
+int forkOrphan()
 {
   pid_t pid = fork();
 
@@ -33,11 +33,11 @@ int fork_orphan()
    6. reset any inherited umask to a reasonable 022 */
 bool daemonize(const std::string &path)
 {
-  if (!fork_orphan() ||
+  if (!forkOrphan() ||
       setsid() == -1 ||
-      !fork_orphan() ||
+      !forkOrphan() ||
       chdir("/") == -1 ||
-      !daemonize_stddes(path)) {
+      !daemonizeStddes(path)) {
     return false;
   }
   umask(022);
@@ -46,7 +46,7 @@ bool daemonize(const std::string &path)
 
 /* Create a file with mode, optionally failing if it already exists (EEXIST).
    Note that with must_exist=false, the file may exist with different mode! */
-bool create_file(const std::string &path, int mode, bool must_exist=true)
+bool createFile(const std::string &path, int mode, bool must_exist=true)
 {
   int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, mode);
   if (fd == -1 && (must_exist || errno != EEXIST)) {
@@ -58,15 +58,15 @@ bool create_file(const std::string &path, int mode, bool must_exist=true)
 }
 
 /* Demonstrate a daemon */
-void demo()
+void demoDaemon()
 {
   std::string path = "/Users/jacguo/Projects/screens/out.txt";
-  if (!create_file(path, 0644, false)) {
-    sys_error("create_file");
+  if (!createFile(path, 0644, false)) {
+    sysError("createFile");
   }
 
   if (!daemonize(path)) {
-    sys_error("daemonize");
+    sysError("daemonize");
   }
   printf("I'm a daemon!\n");
 }
@@ -75,7 +75,7 @@ void demo()
 int main()
 {
   try {
-    demo();
+    demoDaemon();
   } catch (const std::exception &ex) {
     fprintf(stderr, "%s\n", ex.what());
     return EXIT_FAILURE;

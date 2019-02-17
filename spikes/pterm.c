@@ -6,7 +6,7 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 
-void sys_error(char *name, int code)
+void sysError(char *name, int code)
 {
   perror(name);
   exit(code);
@@ -20,7 +20,7 @@ int command(char *path, char **args)
     return -1;
   } else if (!pid) {
     execvp(path, args);
-    sys_error("execvp", 1);
+    sysError("execvp", 1);
   }
 
   // the only remaining reason for failure (considering we've hardcoded
@@ -49,12 +49,12 @@ int main()
 
   // initial directory contents
   if (system("ls -l /dev/ttys*") == -1) {
-    sys_error("system", 1);
+    sysError("system", 1);
   }
 
   fdm = posix_openpt(O_RDWR);
   if (fdm == -1) {
-    sys_error("posix_openpt", 1);
+    sysError("posix_openpt", 1);
   }
 
   // device file path associated with pseudo terminal
@@ -62,17 +62,17 @@ int main()
 
   res = grantpt(fdm);
   if (res == -1) {
-    sys_error("grantpt", 1);
+    sysError("grantpt", 1);
   }
 
   res = unlockpt(fdm);
   if (res == -1) {
-    sys_error("unlockpt", 1);
+    sysError("unlockpt", 1);
   }
 
   // show creation of slave side
   printf("\n");
   if (system("ls -l /dev/ttys*") == -1) {
-    sys_error("system", 1);
+    sysError("system", 1);
   }
 }

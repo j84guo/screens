@@ -5,12 +5,12 @@ void disable_echo()
 {
   struct termios settings;
   if (tcgetattr(STDIN_FILENO, &settings) == -1) {
-    sys_error("tcgetattr", 1);
+    sysError("tcgetattr", 1);
   }
 
   settings.c_lflag &= ~ECHO;
   if (tcsetattr(STDIN_FILENO, TCSANOW, &settings) == -1) {
-    sys_error("tcsetattr", 1);
+    sysError("tcsetattr", 1);
   }
 }
 
@@ -20,6 +20,6 @@ void to_foreground()
   pid_t pgid = getpgid(0);
 
   if (tcsetpgrp(STDIN_FILENO, pgid) == -1) {
-    sys_error("tcsetpgrp", 1);
+    sysError("tcsetpgrp", 1);
   }
 }
