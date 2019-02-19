@@ -197,7 +197,8 @@ bool handleFdmRead(Window &window)
 
   int res = read(window.fdm, buf, sizeof(buf));
   if (res > 0) {
-    /* Remember the last N bytes output from the window */
+    /* Remember the last N bytes output from the window
+       todo: start from first full line */
     window.buffer.write(buf, res);
     /* Write to STDOUT */
     if (writeAll(STDOUT_FILENO, buf, res) == -1) {
