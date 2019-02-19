@@ -14,18 +14,17 @@ RingBuffer::RingBuffer(size_t capacity):
   _capacity(capacity),
   _size(0),
   _start(0),
-  _end(0)
-{
-  _buffer = new char[_capacity];
-}
+  _end(0),
+  _buffer(new char[_capacity])
+{}
 
 RingBuffer::RingBuffer(const RingBuffer &other):
   _capacity(other._capacity),
   _size(other._size),
   _start(other._start),
-  _end(other._end)
+  _end(other._end),
+  _buffer(new char[other._capacity])
 {
-  _buffer = new char[_capacity];
   memcpy(_buffer, other._buffer, _capacity);
 }
 
@@ -49,7 +48,6 @@ void RingBuffer::swapWith(RingBuffer &other)
 /* Move construction makes insertion into vector more efficient */
 RingBuffer::RingBuffer(RingBuffer &&other)
 {
-  printf("Move constructing RingBuffer\r\n");
   _buffer = other._buffer;
   _capacity = other._capacity;
   _size = other._size;
@@ -112,39 +110,47 @@ size_t RingBuffer::read(char *into, size_t len)
     memcpy(into, _buffer + _start, toRead);
     _start += toRead;
   } else {
-    size_t firstLen = _capacity - _start;
-    memcpy(into, _buffer + _start, firstLen);
 
-    size_t secondLen = _end;
-    memcpy(into + firstLen, _buffer, secondLen);
-    _start = secondLen;
+    if (_capacity - _start >= toRead) {
+      /* within first segment */
+      memcpy(into, _buffer + _start, toRead);
+      _start += toRead;
+    } else {
+      /* full first segment and within second segment */
+      size_t firstLen = _capacity - _start;
+      memcpy(into, _buffer + _start, firstLen);
+
+      size_t secondLen = std::min(_end, toRead - firstLen);
+      memcpy(into + firstLen, _buffer, secondLen);
+      _start = secondLen;
+    }
   }
 
   _size -= toRead;
   return toRead;
 }
 
-void demoRingBuffer()
-{
-  RingBuffer ring(5);
+// void demoRingBuffer()
+// {
+//   RingBuffer ring(5);
+//
+//   char inbuf[] = {1, 2, 3, 4};
+//   ring.write(inbuf, 4);
+//   ring.write(inbuf, 4);
+//
+//   char outbuf[5];
+//   size_t res = ring.read(outbuf, 3);
+//   for (size_t i=0; i<res; ++i) {
+//     printf("%hhd\n", outbuf[i]);
+//   }
+// }
 
-  char inbuf[] = {1, 2, 3, 4};
-  ring.write(inbuf, 4);
-  ring.write(inbuf, 4);
-
-  char outbuf[5];
-  size_t res = ring.read(outbuf, ring.size());
-  for (size_t i=0; i<res; ++i) {
-    printf("%hhd\n", outbuf[i]);
-  }
-}
-
-/*
-int main()
-{
-  RingBuffer buf(1024);
-  RingBuffer copy = buf;
-  RingBuffer other(512);
-  other = copy;
-}
-*/
+// int main()
+// {
+//   // RingBuffer buf(1024);
+//   // RingBuffer copy = buf;
+//   // RingBuffer other(512);
+//   // other = copy;
+//
+//   demoRingBuffer();
+// }

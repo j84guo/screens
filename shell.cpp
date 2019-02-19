@@ -135,6 +135,7 @@ void handleSwitchWindow(SwitchDir dir)
 
 void handleCreateWindow()
 {
+  printf("%s", CLEAR);
   printf("[Create screen]\r\n");
   Window &window = addNewWindow();
   forkWindow(window);
