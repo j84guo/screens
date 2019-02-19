@@ -103,6 +103,9 @@ void RingBuffer::write(char *from, size_t len)
 size_t RingBuffer::read(char *into, size_t len)
 {
   size_t toRead = std::min(len, _size);
+  if (!toRead) {
+    return 0;
+  }
 
   if (_end > _start) {
     memcpy(into, _buffer + _start, toRead);

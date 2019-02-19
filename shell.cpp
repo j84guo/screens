@@ -16,6 +16,12 @@
 #include <sys/select.h>
 
 
+/* Window switch directions */
+enum class SwitchDir {
+  NEXT,
+  PREV
+};
+
 /* Ctrl-A */
 const unsigned char ASCII_1 = 1;
 
@@ -28,10 +34,6 @@ std::vector<Window> windows;
 /* Forward declarations */
 void runChild(int fdm);
 
-std::vector<std::string> getWindowLabels()
-{
-  return std::vector<std::string>();
-}
 
 void forkWindow(Window &window)
 {
@@ -94,6 +96,30 @@ int writeAll(int fd, char *buf, size_t len)
   return len;
 }
 
+void switchWindow(SwitchDir dir)
+{
+  printf("%s", CLEAR);
+
+  if (dir == SwitchDir::NEXT) {
+    printf("[Next screen]\r\n");
+    currentWindow = (currentWindow + 1) % windows.size();
+  } else {
+    printf("[Previous screen]\r\n");
+    currentWindow = !currentWindow ? windows.size() - 1 : currentWindow - 1;
+  }
+
+  size_t res;
+  char buf[512];
+  RingBuffer &ringBuf = windows.at(currentWindow).buffer;
+
+  /* Dump the buffer which represents the last N bytes of output */
+  while ((res = ringBuf.read(buf, sizeof(buf))) > 0) {
+    if (writeAll(STDOUT_FILENO, buf, res) == -1) {
+      sysError("writeAll");
+    }
+  }
+}
+  
 /* Return whether the parent loop should continue or not (error or EOF) */
 bool handleScreenCommand()
 {
@@ -114,13 +140,11 @@ bool handleScreenCommand()
     break;
   }
   case KEY_LOWER_N: {
-    printf("[Next screen]\r\n");
-    currentWindow = (currentWindow + 1) % windows.size();
+    switchWindow(SwitchDir::NEXT);
     break;
   }
   case KEY_UPPER_N: {
-    printf("[Previous screen]\r\n");
-    currentWindow = !currentWindow ? windows.size() - 1 : currentWindow - 1; 
+    switchWindow(SwitchDir::PREV);   
     break;
   }}
 
@@ -128,7 +152,7 @@ bool handleScreenCommand()
 }
 
 /* Return whether the parent loop should continue or not (error or EOF) */
-bool handleStdinRead(int fdm)
+bool handleStdinRead(Window &window)
 {
   int res = fgetc(stdin);
   if (res == EOF) {
@@ -139,7 +163,7 @@ bool handleStdinRead(int fdm)
   if (c == ASCII_1) {
     return handleScreenCommand();
   } else {
-    if (writeAll(fdm, (char *) &c, 1) == -1) {
+    if (writeAll(window.fdm, (char *) &c, 1) == -1) {
       sysError("write");
     }
   }
@@ -148,13 +172,16 @@ bool handleStdinRead(int fdm)
 }
 
 /* Return whether the parent loop should continue or not (error or EOF) */
-bool handleFdmRead(int fdm)
+bool handleFdmRead(Window &window)
 {
   char buf[512];
 
-  int res = read(fdm, buf, sizeof(buf));
+  int res = read(window.fdm, buf, sizeof(buf));
   if (res > 0) {
-    if (writeAll(STDIN_FILENO, buf, res) == -1) {
+    /* Remember the last N bytes output from the window */
+    window.buffer.write(buf, res);
+    /* Write to STDOUT */
+    if (writeAll(STDOUT_FILENO, buf, res) == -1) {
       sysError("writeall");
     }
   } else {
@@ -175,16 +202,16 @@ void runParent()
   bool cont = true;
 
   while (cont) {
-    int fdm = windows.at(currentWindow).fdm;
-    if (fdmStdinRselect(&rset, fdm) == -1) {
+    Window &window = windows.at(currentWindow);
+    if (fdmStdinRselect(&rset, window.fdm) == -1) {
       sysError("fdmStdinRselect");
     }
 
     /* Act on current Window */
     if (FD_ISSET(STDIN_FILENO, &rset)) {
-      cont = handleStdinRead(fdm);
-    } else if (FD_ISSET(fdm, &rset)) {
-      cont = handleFdmRead(fdm);
+      cont = handleStdinRead(window);
+    } else if (FD_ISSET(window.fdm, &rset)) {
+      cont = handleFdmRead(window);
     }
   }
 }
