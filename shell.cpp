@@ -3,8 +3,9 @@
 #include "window.h"
 
 #include <string>
-#include <utility>
 #include <vector>
+#include <memory>
+#include <utility>
 #include <stdexcept>
 
 #include <stdio.h>
@@ -29,7 +30,7 @@ const unsigned char ASCII_1 = 1;
 int nextWindowID = 0;
 int currentWindow = 0;
 const int SCROLLBACK_CAPACITY = 1024;
-std::vector<Window> windows;
+std::vector<std::unique_ptr<Window>> windows;
 
 /* Forward declarations */
 void runChild(int fdm);
@@ -47,15 +48,24 @@ void forkWindow(Window &window)
   }
 }
 
+Window &getWindow(int i)
+{
+  return *windows.at(i);
+}
+
 Window &addNewWindow()
 {
-  Window window(nextWindowID++, SCROLLBACK_CAPACITY);
+  Window *window = new Window(nextWindowID++, SCROLLBACK_CAPACITY);
   /* Since Window wraps a potentially large RingBuffer, we move construct it
      into the vector, which attempts to move all members recursively by default
-     or uses any user-supplied move constructor */
-  windows.push_back(std::move(window));
+     or uses any user-supplied move constructor
+
+     Note that std::vector will try to use the move constructor when resizing
+     itself */
+  windows.push_back(std::unique_ptr<Window>(window));
+
   currentWindow = windows.size() - 1;
-  return windows.at(currentWindow);
+  return getWindow(currentWindow);
 }
 
 /* Multiplex read on stdin and the pseudo-terminal master, expects a non-null
@@ -96,7 +106,7 @@ int writeAll(int fd, char *buf, size_t len)
   return len;
 }
 
-void switchWindow(SwitchDir dir)
+void handleSwitchWindow(SwitchDir dir)
 {
   printf("%s", CLEAR);
 
@@ -110,7 +120,10 @@ void switchWindow(SwitchDir dir)
 
   size_t res;
   char buf[512];
-  RingBuffer &ringBuf = windows.at(currentWindow).buffer;
+
+  /* in order to read non-destructively, we make a copy
+     todo: avoid unnecessary buffering */
+  RingBuffer ringBuf = getWindow(currentWindow).buffer;
 
   /* Dump the buffer which represents the last N bytes of output */
   while ((res = ringBuf.read(buf, sizeof(buf))) > 0) {
@@ -119,7 +132,14 @@ void switchWindow(SwitchDir dir)
     }
   }
 }
-  
+
+void handleCreateWindow()
+{
+  printf("[Create screen]\r\n");
+  Window &window = addNewWindow();
+  forkWindow(window);
+}
+
 /* Return whether the parent loop should continue or not (error or EOF) */
 bool handleScreenCommand()
 {
@@ -132,19 +152,17 @@ bool handleScreenCommand()
   case KEY_DQUOTE: {
     printf("[List screens]\r\n");
     break;
-  } 
+  }
   case KEY_LOWER_C: {
-    printf("[Create screen]\r\n");
-    Window &window = addNewWindow();
-    forkWindow(window);
+    handleCreateWindow();
     break;
   }
   case KEY_LOWER_N: {
-    switchWindow(SwitchDir::NEXT);
+    handleSwitchWindow(SwitchDir::NEXT);
     break;
   }
   case KEY_UPPER_N: {
-    switchWindow(SwitchDir::PREV);   
+    handleSwitchWindow(SwitchDir::PREV);
     break;
   }}
 
@@ -202,7 +220,7 @@ void runParent()
   bool cont = true;
 
   while (cont) {
-    Window &window = windows.at(currentWindow);
+    Window &window = getWindow(currentWindow);
     if (fdmStdinRselect(&rset, window.fdm) == -1) {
       sysError("fdmStdinRselect");
     }
@@ -274,10 +292,10 @@ void demoShell()
    0. [DONE] Implement arrow menu and screen clear/restore
    1. [DONE] Intercept screens commands, e.g. list windows, switch window, create
       window. Commands are two bytes: 3 (ctrl-a) and some identifier
-   2. - Function for creating a new window
-      - In runChild() accept a window object
-      - Track windows in a global vector
-      - Create new
+   2. - [DONE] Function for creating a new window
+      - [DONE] In runChild() accept a window object
+      - [DONE] Track windows in a global vector
+      - [DONE] Create new
       - Switch to next/previous window
       - Detect when a window closes and either update view or terminate when
         last one closes

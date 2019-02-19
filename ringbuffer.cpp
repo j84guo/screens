@@ -49,6 +49,7 @@ void RingBuffer::swapWith(RingBuffer &other)
 /* Move construction makes insertion into vector more efficient */
 RingBuffer::RingBuffer(RingBuffer &&other)
 {
+  printf("Move constructing RingBuffer\r\n");
   _buffer = other._buffer;
   _capacity = other._capacity;
   _size = other._size;
@@ -83,7 +84,7 @@ void RingBuffer::write(char *from, size_t len)
 
   while (i < len) {
     size_t blockLen = std::min(len - i, _capacity - _end);
-    memcpy(_buffer + _end, from + i, blockLen);  
+    memcpy(_buffer + _end, from + i, blockLen);
 
     _end += blockLen;
     if (_end == _capacity) {

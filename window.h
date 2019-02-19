@@ -32,12 +32,12 @@ struct Window {
   Window(const Window &other) = delete;
   Window &operator=(Window other) = delete;
 
-  Window(Window &&other)
+  Window(Window &&other):
+    fdm(other.fdm),
+    WID(),
+    PID(),
+    buffer(std::move(other.buffer))
   {
-    fdm = other.fdm;
-    WID = other.WID;
-    PID = other.PID;
-    buffer = std::move(other.buffer);
     other.fdm = -1;
   }
 
