@@ -115,10 +115,12 @@ bool handleScreenCommand()
   }
   case KEY_LOWER_N: {
     printf("[Next screen]\r\n");
+    currentWindow = (currentWindow + 1) % windows.size();
     break;
   }
   case KEY_UPPER_N: {
     printf("[Previous screen]\r\n");
+    currentWindow = !currentWindow ? windows.size() - 1 : currentWindow - 1; 
     break;
   }}
 
