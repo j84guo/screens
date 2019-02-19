@@ -35,6 +35,17 @@ std::vector<std::unique_ptr<Window>> windows;
 /* Forward declarations */
 void runChild(int fdm);
 
+std::vector<std::string> getWindowLabels()
+{
+  std::vector<std::string> res;
+
+  for (auto &ptr : windows) {
+    std::string label = std::to_string(ptr->WID) + " bash";
+    res.push_back(label);
+  }
+
+  return res;
+}
 
 void forkWindow(Window &window)
 {
@@ -141,6 +152,22 @@ void handleCreateWindow()
   forkWindow(window);
 }
 
+void handleSelectWindow()
+{
+  printf("%s", CLEAR);
+  printf("[List screens]\r\n");
+
+  std::vector<std::string> options = getWindowLabels();
+  Menu menu(options, true, false);
+
+  int choice = menu.run();
+  if (choice == Menu::NOCHOICE) {
+    return;
+  }
+
+  currentWindow = choice;
+}
+
 /* Return whether the parent loop should continue or not (error or EOF) */
 bool handleScreenCommand()
 {
@@ -151,7 +178,7 @@ bool handleScreenCommand()
 
   switch (res) {
   case KEY_DQUOTE: {
-    printf("[List screens]\r\n");
+    handleSelectWindow();
     break;
   }
   case KEY_LOWER_C: {
@@ -298,7 +325,7 @@ void demoShell()
       - [DONE] In runChild() accept a window object
       - [DONE] Track windows in a global vector
       - [DONE] Create new
-      - Switch to next/previous window
+      - [DONE] Switch to next/previous window
       - Detect when a window closes and either update view or terminate when
         last one closes
 

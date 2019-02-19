@@ -51,9 +51,9 @@ void Menu::printMenu()
 {
   for (int i=0; i<options.size(); ++i) {
     if (i == current) {
-      printf("%s%d. %s%s\r\n", BG_BLUE, i + 1, options.at(i).c_str(), RESET);
+      printf("%s%s%s\r\n", BG_BLUE, options.at(i).c_str(), RESET);
     } else {
-      printf("%d. %s\r\n", i + 1, options.at(i).c_str());
+      printf("%s\r\n", options.at(i).c_str());
     }
   }
 }

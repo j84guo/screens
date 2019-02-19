@@ -110,7 +110,6 @@ size_t RingBuffer::read(char *into, size_t len)
     memcpy(into, _buffer + _start, toRead);
     _start += toRead;
   } else {
-
     if (_capacity - _start >= toRead) {
       /* within first segment */
       memcpy(into, _buffer + _start, toRead);
@@ -129,28 +128,3 @@ size_t RingBuffer::read(char *into, size_t len)
   _size -= toRead;
   return toRead;
 }
-
-// void demoRingBuffer()
-// {
-//   RingBuffer ring(5);
-//
-//   char inbuf[] = {1, 2, 3, 4};
-//   ring.write(inbuf, 4);
-//   ring.write(inbuf, 4);
-//
-//   char outbuf[5];
-//   size_t res = ring.read(outbuf, 3);
-//   for (size_t i=0; i<res; ++i) {
-//     printf("%hhd\n", outbuf[i]);
-//   }
-// }
-
-// int main()
-// {
-//   // RingBuffer buf(1024);
-//   // RingBuffer copy = buf;
-//   // RingBuffer other(512);
-//   // other = copy;
-//
-//   demoRingBuffer();
-// }
