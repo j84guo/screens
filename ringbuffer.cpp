@@ -1,12 +1,10 @@
 #include "ringbuffer.h"
 
+#include <algorithm>
+
 #include <stdio.h>
 #include <string.h>
 
-static size_t min(size_t a, size_t b)
-{
-  return a < b ? a : b;
-}
 
 RingBuffer::RingBuffer():
     RingBuffer(512)
@@ -21,8 +19,48 @@ RingBuffer::RingBuffer(size_t capacity):
   _buffer = new char[_capacity];
 }
 
+RingBuffer::RingBuffer(const RingBuffer &other):
+  _capacity(other._capacity),
+  _size(other._size),
+  _start(other._start),
+  _end(other._end)
+{
+  _buffer = new char[_capacity];
+  memcpy(_buffer, other._buffer, _capacity);
+}
+
+/* Copy and swap ensures construction of new state occurs before destruction of
+   current state */
+RingBuffer &RingBuffer::operator=(RingBuffer other)
+{
+  swapWith(other);
+  return *this;
+}
+
+void RingBuffer::swapWith(RingBuffer &other)
+{
+  std::swap(_buffer, other._buffer);
+  std::swap(_capacity, other._capacity);
+  std::swap(_size, other._size);
+  std::swap(_start, other._start);
+  std::swap(_end, other._end);
+}
+
+/* Move construction makes insertion into vector more efficient */
+RingBuffer::RingBuffer(RingBuffer &&other)
+{
+  _buffer = other._buffer;
+  _capacity = other._capacity;
+  _size = other._size;
+  _start = other._start;
+  _end = other._end;
+
+  other._buffer = nullptr;
+}
+
 RingBuffer::~RingBuffer()
 {
+  /* like free(), delete is a NO-OP on null pointers */
   delete[] _buffer;
 }
 
@@ -44,14 +82,13 @@ void RingBuffer::write(char *from, size_t len)
   size_t i = 0;
 
   while (i < len) {
-    size_t blockLen = min(len - i, _capacity - _end);
+    size_t blockLen = std::min(len - i, _capacity - _end);
     memcpy(_buffer + _end, from + i, blockLen);  
 
     _end += blockLen;
     if (_end == _capacity) {
       _end = 0;
     }
-
     i += blockLen;
   }
 
@@ -65,7 +102,7 @@ void RingBuffer::write(char *from, size_t len)
 
 size_t RingBuffer::read(char *into, size_t len)
 {
-  size_t toRead = min(len, _size);
+  size_t toRead = std::min(len, _size);
 
   if (_end > _start) {
     memcpy(into, _buffer + _start, toRead);
@@ -97,3 +134,13 @@ void demoRingBuffer()
     printf("%hhd\n", outbuf[i]);
   }
 }
+
+/*
+int main()
+{
+  RingBuffer buf(1024);
+  RingBuffer copy = buf;
+  RingBuffer other(512);
+  other = copy;
+}
+*/

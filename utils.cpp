@@ -2,9 +2,11 @@
 
 #include <stdexcept>
 
+#include <fcntl.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <termios.h>
 #include <sys/types.h>
@@ -129,4 +131,22 @@ bool setTerminalRawio()
   }
 
   return false;
+}
+
+/* Create a pseudo-terminal pair
+
+   Note: standards define O_NOCTTY for opening a PTY without it becoming the
+   controlling terminal of the calling process, but this seems to be included
+   for compatibility reasons */
+int makePTY()
+{
+  int fdm = posix_openpt(O_RDWR | O_NOCTTY);
+  if (fdm != -1) {
+    if (grantpt(fdm) != -1 && unlockpt(fdm) != -1) {
+      return fdm;
+    }
+    close(fdm);
+  }
+
+  return -1;
 }

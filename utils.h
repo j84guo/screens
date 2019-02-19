@@ -14,4 +14,6 @@ bool resetStddes(int fd);
 void unsetTerminalRawIO();
 bool setTerminalRawio();
 
+int makePTY();
+
 #endif

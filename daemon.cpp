@@ -45,11 +45,16 @@ bool daemonize(const std::string &path)
 }
 
 /* Create a file with mode, optionally failing if it already exists (EEXIST).
-   Note that with must_exist=false, the file may exist with different mode! */
-bool createFile(const std::string &path, int mode, bool must_exist=true)
+   Note that with exclusive=false, any existing file may be truncated and have
+   its permissions reset! */
+bool createFile(const std::string &path, mode_t mode, bool exclusive=true)
 {
-  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, mode);
-  if (fd == -1 && (must_exist || errno != EEXIST)) {
+  if (exclusive) {
+    mode |= O_EXCL;
+  }
+
+  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
+  if (fd == -1) {
     return false;
   }
 

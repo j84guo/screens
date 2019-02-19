@@ -9,6 +9,9 @@ class RingBuffer {
 public:
   RingBuffer();
   RingBuffer(size_t capacity);
+  RingBuffer(const RingBuffer &other);
+  RingBuffer& operator=(RingBuffer other);
+  RingBuffer(RingBuffer &&other);
   ~RingBuffer();
 
   size_t size();
@@ -17,6 +20,8 @@ public:
   size_t read(char *into, size_t len);
 
 private:
+  void swapWith(RingBuffer &other);
+
   /* _start indicates where to read from next
      _end indicates where to write to next */
   size_t _start;
