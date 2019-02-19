@@ -117,18 +117,8 @@ int writeAll(int fd, char *buf, size_t len)
   return len;
 }
 
-void handleSwitchWindow(SwitchDir dir)
+void reOutputWindow()
 {
-  printf("%s", CLEAR);
-
-  if (dir == SwitchDir::NEXT) {
-    printf("[Next screen]\r\n");
-    currentWindow = (currentWindow + 1) % windows.size();
-  } else {
-    printf("[Previous screen]\r\n");
-    currentWindow = !currentWindow ? windows.size() - 1 : currentWindow - 1;
-  }
-
   size_t res;
   char buf[512];
 
@@ -142,6 +132,21 @@ void handleSwitchWindow(SwitchDir dir)
       sysError("writeAll");
     }
   }
+}
+
+void handleSwitchWindow(SwitchDir dir)
+{
+  printf("%s", CLEAR);
+
+  if (dir == SwitchDir::NEXT) {
+    printf("[Next screen]\r\n");
+    currentWindow = (currentWindow + 1) % windows.size();
+  } else {
+    printf("[Previous screen]\r\n");
+    currentWindow = !currentWindow ? windows.size() - 1 : currentWindow - 1;
+  }
+
+  reOutputWindow();
 }
 
 void handleCreateWindow()
@@ -161,11 +166,12 @@ void handleSelectWindow()
   Menu menu(options, true, false);
 
   int choice = menu.run();
-  if (choice == Menu::NOCHOICE) {
-    return;
-  }
+  menu.close();
 
-  currentWindow = choice;
+  if (choice != Menu::NOCHOICE) {
+    currentWindow = choice;
+  }
+  reOutputWindow();
 }
 
 /* Return whether the parent loop should continue or not (error or EOF) */

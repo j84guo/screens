@@ -65,6 +65,7 @@ int Menu::run()
   int res;
   while ((res = fgetc(stdin)) != KEY_SPACE) {
     if (res == KEY_ESC && (res = fgetc(stdin)) == KEY_LSQBR) {
+      // printf("ARROW PRESS!\r\n");
       switch ((res = fgetc(stdin))) {
       case KEY_UP:
         updateMenu(CursorDir::UP);
