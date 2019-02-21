@@ -46,14 +46,13 @@ void RingBuffer::swapWith(RingBuffer &other)
 }
 
 /* Move construction makes insertion into vector more efficient */
-RingBuffer::RingBuffer(RingBuffer &&other)
+RingBuffer::RingBuffer(RingBuffer &&other):
+  _buffer(other._buffer),
+  _capacity(other._capacity),
+  _size(other._size),
+  _start(other._start),
+  _end(other._end)
 {
-  _buffer = other._buffer;
-  _capacity = other._capacity;
-  _size = other._size;
-  _start = other._start;
-  _end = other._end;
-
   other._buffer = nullptr;
 }
 
